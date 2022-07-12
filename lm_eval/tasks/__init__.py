@@ -4,6 +4,9 @@ from typing import List, Union
 import sacrebleu
 import lm_eval.base
 
+# from big_bench_tasks import anachronisms
+from . import anachronisms
+
 from . import superglue
 from . import glue
 from . import arc
@@ -82,6 +85,8 @@ all_translation_benchmarks = {
 
 
 TASK_REGISTRY = {
+    # Big Bench
+    "anachronisms": anachronisms.Anachronisms,
     # GLUE
     "cola": glue.CoLA,
     "mnli": glue.MNLI,

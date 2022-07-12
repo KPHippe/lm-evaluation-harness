@@ -5,7 +5,7 @@ import sacrebleu
 import lm_eval.base
 
 # from big_bench_tasks import anachronisms
-from . import anachronisms
+from .big_bench_tasks import anachronisms 
 
 from . import superglue
 from . import glue

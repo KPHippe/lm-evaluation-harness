@@ -5,7 +5,10 @@ import sacrebleu
 import lm_eval.base
 
 # from big_bench_tasks import anachronisms
-from .big_bench_tasks import (anachronisms, abstract_narrative_understanding )
+from .big_bench_tasks import (anachronisms, 
+                              abstract_narrative_understanding, 
+                              auto_categorization, 
+                            )
 
 from . import superglue
 from . import glue
@@ -88,6 +91,7 @@ TASK_REGISTRY = {
     # Big Bench
     "anachronisms": anachronisms.Anachronisms,
     "abstract_narrative_understanding": abstract_narrative_understanding.AbstractNarrativeUnderstanding,
+    "auto_categorization": auto_categorization.AutoCategroization,
     # GLUE
     "cola": glue.CoLA,
     "mnli": glue.MNLI,

@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 
 
 def main(args):
+    available_tasks = json.load(open('/home/khippe/github/lm-evaluation-harness/big_bench_integration/hf_available_tasks.json'))
     task_data = json.load(open(args.task_json))
     
     generate, mc = {}, {} 
@@ -17,13 +18,48 @@ def main(args):
             if num_mc > 0: 
                 mc[task] = num_mc 
 
-    only_json = [] 
+    #find number of only mc tasks
+    only_mc = [] 
     for key in mc: 
         if key not in generate: 
-            only_json.append(key)
+            only_mc.append(key)
+    
+    available_only_mc = [] 
+    for task in only_mc: 
+        if task in available_tasks: 
+            available_only_mc.append(task)
+            
+    print(f"Number of mc only tasks: {len(available_only_mc)}")
+    json.dump(available_only_mc, open('only_mc_tasks.json', 'w'))
 
-    print(f"Number of json only tasks: {len(only_json)}")
-    json.dump(only_json, open('only_json_tasks.json', 'w'))
+    #Find number of generation tasks 
+    only_gen = []
+    for key in generate: 
+        if key not in mc: 
+            only_gen.append(key)
+    
+    available_only_gen = [] 
+    for task in only_gen: 
+        if task in available_tasks: 
+            available_only_gen.append(task)
+
+    print(f"Number of gen only tasks: {len(available_only_gen)}")
+    json.dump(available_only_gen, open('only_gen_tasks.json', 'w'))
+
+    #Find number of tasks with both 
+    both = [] 
+    for key in generate: 
+        if key in mc: 
+            both.append(key)
+    
+    available_both = [] 
+    for task in both: 
+        if task in available_tasks: 
+            available_both.append(task)
+
+    print(f"Number of tasks with both mc and gen: {len(available_both)}")
+    json.dump(available_only_gen, open('both_gen_mc_tasks.json', 'w'))
+    
     
 
 

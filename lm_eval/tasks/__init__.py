@@ -4,11 +4,15 @@ from typing import List, Union
 import sacrebleu
 import lm_eval.base
 
-# from big_bench_tasks import anachronisms
-from .big_bench_tasks import (anachronisms, 
-                              abstract_narrative_understanding, 
-                              auto_categorization, 
-                            )
+from .big_bench_tasks.big_bench_all import (
+    AutoCategroization,
+    CodeNames,
+    Anachronisms,
+    AbstractNarrativeUnderstanding,
+    AnalogicalSimilarity,
+    ArithmeticBB,
+    ObjectCounting,
+)
 
 from . import superglue
 from . import glue
@@ -88,10 +92,14 @@ all_translation_benchmarks = {
 
 
 TASK_REGISTRY = {
-    # Big Bench
-    "anachronisms": anachronisms.Anachronisms,
-    "abstract_narrative_understanding": abstract_narrative_understanding.AbstractNarrativeUnderstanding,
-    "auto_categorization": auto_categorization.AutoCategroization,
+    # BIG-Bench tasks
+    "anachronisms": Anachronisms,
+    "abstract_narrative_understanding": AbstractNarrativeUnderstanding,
+    "analogical_similarity": AnalogicalSimilarity,
+    "auto_categorization": AutoCategroization,
+    "arithmetic": ArithmeticBB,
+    "codenames": CodeNames,
+    "object_counting": ObjectCounting,
     # GLUE
     "cola": glue.CoLA,
     "mnli": glue.MNLI,

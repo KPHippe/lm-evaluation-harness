@@ -9,8 +9,8 @@ is currently in preparation.
 
 Homepage: https://github.com/google/BIG-bench
 """
-from lm_eval.base import MultipleChoiceTask
-
+from lm_eval.base import Task, rf 
+from lm_eval.metrics import mean 
 
 _CITATION = """@misc{https://doi.org/10.48550/arxiv.2206.04615,
   doi = {10.48550/ARXIV.2206.04615},
@@ -32,31 +32,26 @@ _CITATION = """@misc{https://doi.org/10.48550/arxiv.2206.04615,
 
 """
 
-# TODO: Replace `NewTask` with the name of your Task.
-class AbstractNarrativeUnderstanding(MultipleChoiceTask):
-    # Currently setting version to current BIG-Bench version, should help when looking back
+
+class BigBench_Gen(Task):
     VERSION = "0.0.1"
-    # Add the `DATASET_PATH` string. This will be the name of the `Task`
+    # TODO: Add the `DATASET_PATH` string. This will be the name of the `Task`
     # dataset as denoted in HuggingFace `datasets`.
     DATASET_PATH = "bigbench"
-    # TODO: Add the `DATASET_NAME` string. This is the name of a subset within`DATASET_PATH`. 
-    # This will correspond to the task name coming from BIG-Bench
-    DATASET_NAME = "abstract_narrative_understanding"
+    # TODO: Add the `DATASET_NAME` string. This is the name of a subset within
+    # `DATASET_PATH`. If there aren't specific subsets you need, leave this as `None`.
+    DATASET_NAME = "auto_categorization"
 
     def has_training_docs(self):
-        # Fill in the return with `True` if the Task has training data; else `False`.
+        # TODO: Fill in the return with `True` if the Task has training data; else `False`.
         return True
 
     def has_validation_docs(self):
-        # Fill in the return with `True` if the Task has validation data; else `False`.
+        # TODO: Fill in the return with `True` if the Task has validation data; else `False`.
         return True
 
-    # NOTE:
-    # The default testing behavior (found in lm_eval/evaluator.py line 185 as of 7/12/22)
-    # is to use the testing docs first, then fall back to validation 
     def has_test_docs(self):
-        # Fill in the return with `True` if the Task has test data; else `False`.
-        # For BIG-Bench data, even there is no set labeled 'test' always mark true
+        # TODO: Fill in the return with `True` if the Task has test data; else `False`.
         return True
 
     def training_docs(self):
@@ -66,6 +61,9 @@ class AbstractNarrativeUnderstanding(MultipleChoiceTask):
             # return the training data as a generator instead of a list.
             if self._training_docs is None:
                 # TODO: Return the training document generator from `self.dataset`.
+                # If you need to process the data, `map` over the documents with
+                # the custom processing function, `self._process_doc`. E.g.
+                # `map(self._process_doc, self.dataset["validation"])`
                 # In most case you can leave this as is unless the dataset split is
                 # named differently than the default `"train"`.
                 self._training_docs = list(
@@ -75,31 +73,121 @@ class AbstractNarrativeUnderstanding(MultipleChoiceTask):
 
     def validation_docs(self):
         if self.has_validation_docs():
-            # Return the validation document generator from `self.dataset`.
+            # TODO: Return the validation document generator from `self.dataset`.
+            # If you need to process the data, `map` over the documents with the
+            # custom processing function, `self._process_doc`. E.g.
+            # `map(self._process_doc, self.dataset["validation"])`
             # In most case you can leave this as is unless the dataset split is
             # named differently than the default `"validation"`.
             return map(self._process_doc, self.dataset["validation"])
 
     def test_docs(self):
         if self.has_test_docs():
-            # Return the test document generator from `self.dataset`.
+            # TODO: Return the test document generator from `self.dataset`.
+            # If you need to process the data, `map` over the documents with the
+            # custom processing function, `self._process_doc`. E.g.
+            # `map(self._process_doc, self.dataset["test"])`
             # In most case you can leave this as is unless the dataset split is
             # named differently than the default `"test"`.
-            # see comment on `has_test_docs` for info
             return map(self._process_doc, self.dataset["default"])
 
-    # TODO: Check this is okay across tasks
     def _process_doc(self, doc):
+        # TODO: Process (detokenize, strip, replace etc.) each individual `doc`
+        # with this function. You can map this across the docs in each available
+        # dataset split. See the TODOs in `train_docs`, `validation_docs`, and
+        # `test_docs` for snippets.
         query = doc['inputs']
-        choices = doc['multiple_choice_targets']
-        gold = doc['multiple_choice_scores'].index(1)
+        targets = doc['targets']
         return {
             "query": query,  # The query prompt.
-            "choices": choices,  # The list of choices.
-            "gold": gold,  # The integer used to index into the correct element of `"choices"`.
+            "targets": targets, # the answer(s)
         }
 
-    # TODO: Check this is okay across tasks
     def doc_to_text(self, doc):
-        # This is the default behavior from lm_eval documentation 
+        # default? might not work...
         return doc['query']
+
+    def doc_to_target(self, doc):
+        # TODO: Fill in the `target` ("gold answer") variable.
+        # The prepended `" "` is required to space out the `doc_to_text` and
+        # `doc_to_target` strings.
+        print(doc.keys(), doc)
+        target = doc['targets']
+        # TODO: what if a list of elems ? for few shot?  This is a hack 
+        if isinstance(target, list): 
+            return " " + target[0]
+        return " " + target
+
+    def construct_requests(self, doc, ctx):
+        """Uses RequestFactory to construct Requests and returns an iterable of
+        Requests which will be sent to the LM.
+
+        :param doc:
+            The document as returned from training_docs, validation_docs, or
+            test_docs.
+        :param ctx: str
+            The context string, generated by fewshot_context. This includes the natural
+            language description, as well as the few shot examples, and the question
+            part of the document for `doc`.
+        """
+        # TODO: Construct your language model requests with the request factory, `rf`,
+        # and return them as an iterable.
+        #stolen from gsmk8k.py
+        completion = rf.greedy_until(ctx, ["\n"])
+        return completion
+
+    def process_results(self, doc, results):
+        """Take a single document and the LM results and evaluates, returning a
+        dict where keys are the names of submetrics and values are the values of
+        the metric for that one document
+
+        :param doc:
+            The document as returned from training_docs, validation_docs, or test_docs.
+        :param results:
+            The results of the requests created in construct_requests.
+        """
+        # TODO: For each (sub)metric in the task evaluation, add a key-value pair
+        # with the metric name as key and the corresponding metric result as value
+        # for the current `doc`.
+        targets = doc['targets']
+        gen_answer = results[0]
+
+        gen_answer = gen_answer.lower().strip() 
+        acc = 0
+        #TODO: replcae with something like bleu? or add it? 
+        if isinstance(targets, list): 
+            for target in targets: 
+                if gen_answer == target.lower().strip(): 
+                    acc = 1
+        else: 
+            target = targets
+            if gen_answer == target.lower().strip(): 
+                    acc = 1
+
+        return {'acc':acc}
+
+    def aggregation(self):
+        """
+        :returns: {str: [metric_score] -> float}
+            A dictionary where keys are the names of submetrics and values are
+            functions that aggregate a list of metric scores
+        """
+        # TODO: For each (sub)metric in the task evaluation, add a key-value pair
+        # with the metric name as key and an aggregation function as value which
+        # determines how to combine results from each document in the dataset.
+        # Check `lm_eval.metrics` to find built-in aggregation functions.
+        return {"acc": mean}
+
+    def higher_is_better(self):
+        # TODO: For each (sub)metric in the task evaluation, add a key-value pair
+        # with the metric name as key and a `bool` value determining whether or
+        # not higher values of that metric are deemed better.
+        return {'acc': True}
+
+
+class AutoCategroization(BigBench_Gen): 
+    DATASET_NAME = "auto_categorization"
+
+
+class CodeNames(BigBench_Gen): 
+    DATASET_NAME = "codenames"

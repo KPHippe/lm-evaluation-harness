@@ -53,12 +53,17 @@ class BigBench_General(Task):
         else:
             self.MC = False
 
-        self.bluert = datasets.load_metric(
-            "bleurt",
-        )
-
         # Default metrics, change if needed
         self.metrics = ("absolute_match", "bleurt", "bleu")
+        if "bleurt" in self.metrics:
+            # Force bleurt to run on CPU, otherwise we will run out of memory on GPU
+            # when running gpt-neox
+            import tensorflow as tf
+
+            tf.config.set_visible_devices([], "GPU")
+            self.bluert = datasets.load_metric(
+                "bleurt",
+            )
 
     def has_training_docs(self):
         # TODO: Fill in the return with `True` if the Task has training data; else `False`.

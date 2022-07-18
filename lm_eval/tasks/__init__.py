@@ -14,6 +14,8 @@ from .big_bench_tasks.big_bench_all import (
     ObjectCounting,
 )
 
+from . import radbio
+
 from . import superglue
 from . import glue
 from . import arc
@@ -92,6 +94,12 @@ all_translation_benchmarks = {
 
 
 TASK_REGISTRY = {
+    # radbio
+    "isInSystemQA": radbio.isInSystemQA,
+    "goAHumanQA": radbio.goAHumanQA,
+    "goARadiationResponseQA": radbio.goARadiationResponseQA,
+    "ppiHumanQA": radbio.ppiHumanQA,
+    "humanPathwaysQA": radbio.humanPathwaysQA,
     # BIG-Bench tasks
     "anachronisms": Anachronisms,
     "abstract_narrative_understanding": AbstractNarrativeUnderstanding,

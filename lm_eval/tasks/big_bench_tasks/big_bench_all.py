@@ -18,6 +18,8 @@ import datasets
 import sacrebleu
 from rouge_score import rouge_scorer, scoring
 
+import tensorflow as tf
+
 from lm_eval.base import Task, rf
 from lm_eval.metrics import mean
 
@@ -48,6 +50,15 @@ class BigBench_General(Task):
     def __init__(self):
         super().__init__()
         # TODO figure out how to see if they have both mc and gen tasks
+        try:
+            # checking if both tasks are inherited
+            if self.BOTH_TASKS:
+                print(
+                    "Both tasks present, defaulting to generative evaluation for now..."
+                )
+        except AttributeError:
+            self.BOTH_TASKS = False
+
         if len(self.dataset["default"][0]["multiple_choice_targets"]) != 0:
             self.MC = True
         else:
@@ -55,11 +66,13 @@ class BigBench_General(Task):
 
         # Default metrics, change if needed
         self.metrics = ("absolute_match", "bleurt", "bleu")
-        if "bleurt" in self.metrics:
+        print(
+            '"bleurt" in self.metrics and (not self.MC or self.BOTH_TASKS)',
+            "bleurt" in self.metrics and (not self.MC or self.BOTH_TASKS),
+        )
+        if "bleurt" in self.metrics and (not self.MC or self.BOTH_TASKS):
             # Force bleurt to run on CPU, otherwise we will run out of memory on GPU
             # when running gpt-neox
-            import tensorflow as tf
-
             tf.config.set_visible_devices([], "GPU")
             self.bluert = datasets.load_metric(
                 "bleurt",
@@ -124,23 +137,22 @@ class BigBench_General(Task):
         # As of now, gen targets do not have any mc targets, so we will go based on that
 
         # MC targets
-        if self.MC:
-            query = doc["inputs"]
-            choices = doc["multiple_choice_targets"]
+        query = doc["inputs"]
+        # for mc tasks, in gen tasks will be empty string
+        choices = doc["multiple_choice_targets"]
+        # for mc tasks, in gen tasks will be empty list
+        try:
             gold = doc["multiple_choice_scores"].index(1)
-            return {
-                "query": query,  # The query prompt.
-                "choices": choices,  # The list of choices.
-                "gold": gold,  # The integer used to index into the correct element of `"choices"`.
-            }
-        # generative target, might be useful for having an elif here, but need a bit more specificity on dataset
-        else:
-            query = doc["inputs"]
-            targets = doc["targets"]
-            return {
-                "query": query,  # The query prompt.
-                "targets": targets,  # the answer(s)
-            }
+        except ValueError:
+            gold = -1
+        # for generative tasks, present in MC tasks though
+        targets = doc["targets"]
+        return {
+            "query": query,  # The query prompt.
+            "choices": choices,  # The list of choices.
+            "gold": gold,  # The integer used to index into the correct element of `"choices"`.
+            "targets": targets,  # the answer(s) (for both gen and mc)
+        }
 
     def doc_to_text(self, doc):
         # default for mc? might not work...
@@ -177,8 +189,7 @@ class BigBench_General(Task):
             language description, as well as the few shot examples, and the question
             part of the document for `doc`.
         """
-        # if "choices" in doc.keys():
-        if self.MC:
+        if self.MC and not self.BOTH_TASKS:
             lls = [
                 rf.loglikelihood(ctx, " {}".format(choice))[0]
                 for choice in doc["choices"]
@@ -208,7 +219,7 @@ class BigBench_General(Task):
 
         # Start with multiple choice
         # if "gold" in doc.keys():
-        if self.MC:
+        if self.MC and not self.BOTH_TASKS:
             return self._grade_mc(doc, results)
         # Generative tasks
         # TODO: replcae with something like bleu? or add it? Look at
@@ -253,10 +264,10 @@ class BigBench_General(Task):
             targets = doc["targets"]
             if isinstance(targets, str):
                 targets = [targets]
-
-            bleurt_scores = self.bluert.compute(
-                predictions=[gen_answer] * len(targets), references=targets
-            )["scores"]
+            with tf.device("cpu"):
+                bleurt_scores = self.bluert.compute(
+                    predictions=[gen_answer] * len(targets), references=targets
+                )["scores"]
 
             bleurt_max = max(bleurt_scores)
             metrics["bleurt"] = bleurt_max
@@ -346,67 +357,920 @@ class BigBench_General(Task):
         # with the metric name as key and an aggregation function as value which
         # determines how to combine results from each document in the dataset.
         # Check `lm_eval.metrics` to find built-in aggregation functions.
-        if self.MC:
-            return {
-                "acc_mc": mean,
-                "acc_norm": mean,
-            }
-        else:
-            return {
-                "absolute_match_acc": mean,
-                "bleurt": mean,
-                "bleu": mean,
-                "rogue1": mean,
-                "rogue2": mean,
-                "rogueL": mean,
-            }
+
+        return {
+            "acc_mc": mean,
+            "acc_norm": mean,
+            "absolute_match_acc": mean,
+            "bleurt": mean,
+            "bleu": mean,
+            "rogue1": mean,
+            "rogue2": mean,
+            "rogueL": mean,
+        }
 
     def higher_is_better(self):
         # TODO: For each (sub)metric in the task evaluation, add a key-value pair
         # with the metric name as key and a `bool` value determining whether or
         # not higher values of that metric are deemed better.
-        if self.MC:
-            return {
-                "acc_mc": True,
-                "acc_norm": True,
-            }
-        else:
-            return {
-                "absolute_match": True,
-                "bleurt": True,
-                "bleu": True,
-                "rogue1": True,
-                "rogue2": True,
-                "rogueL": True,
-            }
+
+        return {
+            "acc_mc": True,
+            "acc_norm": True,
+            "absolute_match": True,
+            "bleurt": True,
+            "bleu": True,
+            "rogue1": True,
+            "rogue2": True,
+            "rogueL": True,
+        }
 
 
-# Only generative tasks
-class AutoCategroization(BigBench_General):
-    DATASET_NAME = "auto_categorization"
+"""Original testing
+"""
+# # Only generative tasks
+# class AutoCategroization(BigBench_General):
+#     DATASET_NAME = "auto_categorization"
 
 
-class CodeNames(BigBench_General):
-    DATASET_NAME = "codenames"
+# class CodeNames(BigBench_General):
+#     DATASET_NAME = "codenames"
 
 
-class ObjectCounting(BigBench_General):
-    DATASET_NAME: str = "object_counting"
+# class ObjectCounting(BigBench_General):
+#     DATASET_NAME: str = "object_counting"
+
+# # Only MC tasks
+# class Anachronisms(BigBench_General):
+#     DATASET_NAME = "anachronisms"
 
 
-# Only MC tasks
-class Anachronisms(BigBench_General):
-    DATASET_NAME = "anachronisms"
+# class AbstractNarrativeUnderstanding(BigBench_General):
+#     DATASET_NAME = "abstract_narrative_understanding"
+
+
+# class AnalogicalSimilarity(BigBench_General):
+#     DATASET_NAME = "analogical_similarity"
+
+
+# # Tasks with both kinds of tasks
+# class Arithmetic(BigBench_General):
+#     DATASET_NAME = "arithmetic"
+#     BOTH_TASKS = True
 
 
 class AbstractNarrativeUnderstanding(BigBench_General):
     DATASET_NAME = "abstract_narrative_understanding"
 
 
+class AbstractionAndReasoningCorpus(BigBench_General):
+    DATASET_NAME = "abstraction_and_reasoning_corpus"
+
+
+class Anachronisms(BigBench_General):
+    DATASET_NAME = "anachronisms"
+
+
 class AnalogicalSimilarity(BigBench_General):
     DATASET_NAME = "analogical_similarity"
 
 
-# Tasks with both kinds of tasks
-class ArithmeticBB(BigBench_General):
+class AnalyticEntailment(BigBench_General):
+    DATASET_NAME = "analytic_entailment"
+
+
+class Arithmetic(BigBench_General):
     DATASET_NAME = "arithmetic"
+    BOTH_TASKS = True
+
+
+class AsciiWordRecognition(BigBench_General):
+    DATASET_NAME = "ascii_word_recognition"
+
+
+class AuthorshipVerification(BigBench_General):
+    DATASET_NAME = "authorship_verification"
+
+
+class AutoCategorization(BigBench_General):
+    DATASET_NAME = "auto_categorization"
+
+
+class AutoDebugging(BigBench_General):
+    DATASET_NAME = "auto_debugging"
+
+
+class BbqLite(BigBench_General):
+    DATASET_NAME = "bbq_lite"
+
+
+class BbqLiteJson(BigBench_General):
+    DATASET_NAME = "bbq_lite_json"
+
+
+class BiasFromProbabilities(BigBench_General):
+    DATASET_NAME = "bias_from_probabilities"
+
+
+class BooleanExpressions(BigBench_General):
+    DATASET_NAME = "boolean_expressions"
+
+
+class BridgingAnaphoraResolutionBarqa(BigBench_General):
+    DATASET_NAME = "bridging_anaphora_resolution_barqa"
+
+
+class Canary(BigBench_General):
+    DATASET_NAME = "canary"
+
+
+class CausalJudgment(BigBench_General):
+    DATASET_NAME = "causal_judgment"
+
+
+class CauseAndEffect(BigBench_General):
+    DATASET_NAME = "cause_and_effect"
+
+
+class CheckmateInOne(BigBench_General):
+    DATASET_NAME = "checkmate_in_one"
+    BOTH_TASKS = True
+
+
+class ChessStateTracking(BigBench_General):
+    DATASET_NAME = "chess_state_tracking"
+
+
+class ChineseRemainderTheorem(BigBench_General):
+    DATASET_NAME = "chinese_remainder_theorem"
+
+
+class Cifar10Classification(BigBench_General):
+    DATASET_NAME = "cifar10_classification"
+
+
+class CodeLineDescription(BigBench_General):
+    DATASET_NAME = "code_line_description"
+
+
+class Codenames(BigBench_General):
+    DATASET_NAME = "codenames"
+
+
+class Color(BigBench_General):
+    DATASET_NAME = "color"
+    BOTH_TASKS = True
+
+
+class Com2Sense(BigBench_General):
+    DATASET_NAME = "com2sense"
+
+
+class CommonMorpheme(BigBench_General):
+    DATASET_NAME = "common_morpheme"
+
+
+class ConceptualCombinations(BigBench_General):
+    DATASET_NAME = "conceptual_combinations"
+
+
+class ConlangTranslation(BigBench_General):
+    DATASET_NAME = "conlang_translation"
+
+
+class ContextDefinitionAlignment(BigBench_General):
+    DATASET_NAME = "context_definition_alignment"
+
+
+class ContextualParametricKnowledgeConflicts(BigBench_General):
+    DATASET_NAME = "contextual_parametric_knowledge_conflicts"
+    BOTH_TASKS = True
+
+
+class Convinceme(BigBench_General):
+    DATASET_NAME = "convinceme"
+
+
+class CoqaConversationalQuestionAnswering(BigBench_General):
+    DATASET_NAME = "coqa_conversational_question_answering"
+
+
+class CrashBlossom(BigBench_General):
+    DATASET_NAME = "crash_blossom"
+
+
+class CrassAi(BigBench_General):
+    DATASET_NAME = "crass_ai"
+
+
+class CryobiologySpanish(BigBench_General):
+    DATASET_NAME = "cryobiology_spanish"
+
+
+class Cryptonite(BigBench_General):
+    DATASET_NAME = "cryptonite"
+
+
+class CsAlgorithms(BigBench_General):
+    DATASET_NAME = "cs_algorithms"
+
+
+class CycledLetters(BigBench_General):
+    DATASET_NAME = "cycled_letters"
+
+
+class DarkHumorDetection(BigBench_General):
+    DATASET_NAME = "dark_humor_detection"
+
+
+class DateUnderstanding(BigBench_General):
+    DATASET_NAME = "date_understanding"
+
+
+class DisambiguationQa(BigBench_General):
+    DATASET_NAME = "disambiguation_qa"
+
+
+class DiscourseMarkerPrediction(BigBench_General):
+    DATASET_NAME = "discourse_marker_prediction"
+
+
+class DisflQa(BigBench_General):
+    DATASET_NAME = "disfl_qa"
+
+
+class DiverseSocialBias(BigBench_General):
+    DATASET_NAME = "diverse_social_bias"
+
+
+class DyckLanguages(BigBench_General):
+    DATASET_NAME = "dyck_languages"
+
+
+class DynamicCounting(BigBench_General):
+    DATASET_NAME = "dynamic_counting"
+
+
+class ElementaryMathQa(BigBench_General):
+    DATASET_NAME = "elementary_math_qa"
+
+
+class EmojiMovie(BigBench_General):
+    DATASET_NAME = "emoji_movie"
+    BOTH_TASKS = True
+
+
+class EmojisEmotionPrediction(BigBench_General):
+    DATASET_NAME = "emojis_emotion_prediction"
+
+
+class EmpiricalJudgments(BigBench_General):
+    DATASET_NAME = "empirical_judgments"
+
+
+class EnglishProverbs(BigBench_General):
+    DATASET_NAME = "english_proverbs"
+
+
+class EnglishRussianProverbs(BigBench_General):
+    DATASET_NAME = "english_russian_proverbs"
+
+
+class EntailedPolarity(BigBench_General):
+    DATASET_NAME = "entailed_polarity"
+
+
+class EntailedPolarityHindi(BigBench_General):
+    DATASET_NAME = "entailed_polarity_hindi"
+
+
+class EpistemicReasoning(BigBench_General):
+    DATASET_NAME = "epistemic_reasoning"
+
+
+class EvaluatingInformationEssentiality(BigBench_General):
+    DATASET_NAME = "evaluating_information_essentiality"
+
+
+class FactChecker(BigBench_General):
+    DATASET_NAME = "fact_checker"
+
+
+class FactualityOfSummary(BigBench_General):
+    DATASET_NAME = "factuality_of_summary"
+
+
+class FantasyReasoning(BigBench_General):
+    DATASET_NAME = "fantasy_reasoning"
+
+
+class FewShotNlg(BigBench_General):
+    DATASET_NAME = "few_shot_nlg"
+
+
+class FigureOfSpeechDetection(BigBench_General):
+    DATASET_NAME = "figure_of_speech_detection"
+
+
+class ForecastingSubquestions(BigBench_General):
+    DATASET_NAME = "forecasting_subquestions"
+
+
+class FormalFallaciesSyllogismsNegation(BigBench_General):
+    DATASET_NAME = "formal_fallacies_syllogisms_negation"
+
+
+class Gem(BigBench_General):
+    DATASET_NAME = "gem"
+
+
+class GenderInclusiveSentencesGerman(BigBench_General):
+    DATASET_NAME = "gender_inclusive_sentences_german"
+
+
+class GenderSensitivityChinese(BigBench_General):
+    DATASET_NAME = "gender_sensitivity_chinese"
+
+
+class GenderSensitivityEnglish(BigBench_General):
+    DATASET_NAME = "gender_sensitivity_english"
+
+
+class GeneralKnowledge(BigBench_General):
+    DATASET_NAME = "general_knowledge"
+
+
+class GeometricShapes(BigBench_General):
+    DATASET_NAME = "geometric_shapes"
+    BOTH_TASKS = True
+
+
+class GoalStepWikihow(BigBench_General):
+    DATASET_NAME = "goal_step_wikihow"
+
+
+class GreReadingComprehension(BigBench_General):
+    DATASET_NAME = "gre_reading_comprehension"
+
+
+class HhhAlignment(BigBench_General):
+    DATASET_NAME = "hhh_alignment"
+
+
+class HighLowGame(BigBench_General):
+    DATASET_NAME = "high_low_game"
+
+
+class HindiQuestionAnswering(BigBench_General):
+    DATASET_NAME = "hindi_question_answering"
+
+
+class HinduKnowledge(BigBench_General):
+    DATASET_NAME = "hindu_knowledge"
+
+
+class HinglishToxicity(BigBench_General):
+    DATASET_NAME = "hinglish_toxicity"
+
+
+class HumanOrgansSenses(BigBench_General):
+    DATASET_NAME = "human_organs_senses"
+
+
+class Hyperbaton(BigBench_General):
+    DATASET_NAME = "hyperbaton"
+
+
+class IdentifyMathTheorems(BigBench_General):
+    DATASET_NAME = "identify_math_theorems"
+
+
+class IdentifyOddMetaphor(BigBench_General):
+    DATASET_NAME = "identify_odd_metaphor"
+
+
+class Implicatures(BigBench_General):
+    DATASET_NAME = "implicatures"
+
+
+class ImplicitRelations(BigBench_General):
+    DATASET_NAME = "implicit_relations"
+
+
+class IntentRecognition(BigBench_General):
+    DATASET_NAME = "intent_recognition"
+
+
+class InternationalPhoneticAlphabetNli(BigBench_General):
+    DATASET_NAME = "international_phonetic_alphabet_nli"
+
+
+class InternationalPhoneticAlphabetTransliterate(BigBench_General):
+    DATASET_NAME = "international_phonetic_alphabet_transliterate"
+
+
+class IntersectGeometry(BigBench_General):
+    DATASET_NAME = "intersect_geometry"
+
+
+class IronyIdentification(BigBench_General):
+    DATASET_NAME = "irony_identification"
+
+
+class KanjiAscii(BigBench_General):
+    DATASET_NAME = "kanji_ascii"
+    BOTH_TASKS = True
+
+
+class Kannada(BigBench_General):
+    DATASET_NAME = "kannada"
+
+
+class KeyValueMaps(BigBench_General):
+    DATASET_NAME = "key_value_maps"
+
+
+class KnownUnknowns(BigBench_General):
+    DATASET_NAME = "known_unknowns"
+
+
+class LanguageGames(BigBench_General):
+    DATASET_NAME = "language_games"
+
+
+class LanguageIdentification(BigBench_General):
+    DATASET_NAME = "language_identification"
+
+
+class LinguisticMappings(BigBench_General):
+    DATASET_NAME = "linguistic_mappings"
+
+
+class LinguisticsPuzzles(BigBench_General):
+    DATASET_NAME = "linguistics_puzzles"
+
+
+class ListFunctions(BigBench_General):
+    DATASET_NAME = "list_functions"
+
+
+class LogicGridPuzzle(BigBench_General):
+    DATASET_NAME = "logic_grid_puzzle"
+
+
+class LogicalArgs(BigBench_General):
+    DATASET_NAME = "logical_args"
+
+
+class LogicalDeduction(BigBench_General):
+    DATASET_NAME = "logical_deduction"
+
+
+class LogicalFallacyDetection(BigBench_General):
+    DATASET_NAME = "logical_fallacy_detection"
+
+
+class LogicalSequence(BigBench_General):
+    DATASET_NAME = "logical_sequence"
+
+
+class LongContextIntegration(BigBench_General):
+    DATASET_NAME = "long_context_integration"
+
+
+class MathematicalInduction(BigBench_General):
+    DATASET_NAME = "mathematical_induction"
+
+
+class Matrixshapes(BigBench_General):
+    DATASET_NAME = "matrixshapes"
+
+
+class MedicalQuestionsRussian(BigBench_General):
+    DATASET_NAME = "medical_questions_russian"
+
+
+class MetaphorBoolean(BigBench_General):
+    DATASET_NAME = "metaphor_boolean"
+
+
+class MetaphorUnderstanding(BigBench_General):
+    DATASET_NAME = "metaphor_understanding"
+
+
+class MinuteMysteriesQa(BigBench_General):
+    DATASET_NAME = "minute_mysteries_qa"
+    BOTH_TASKS = True
+
+
+class Misconceptions(BigBench_General):
+    DATASET_NAME = "misconceptions"
+
+
+class MisconceptionsRussian(BigBench_General):
+    DATASET_NAME = "misconceptions_russian"
+
+
+class MnistAscii(BigBench_General):
+    DATASET_NAME = "mnist_ascii"
+
+
+class ModifiedArithmetic(BigBench_General):
+    DATASET_NAME = "modified_arithmetic"
+
+
+class MoralPermissibility(BigBench_General):
+    DATASET_NAME = "moral_permissibility"
+
+
+class MovieDialogSameOrDifferent(BigBench_General):
+    DATASET_NAME = "movie_dialog_same_or_different"
+
+
+class MovieRecommendation(BigBench_General):
+    DATASET_NAME = "movie_recommendation"
+
+
+class MultDataWrangling(BigBench_General):
+    DATASET_NAME = "mult_data_wrangling"
+
+
+class Multiemo(BigBench_General):
+    DATASET_NAME = "multiemo"
+
+
+class MultistepArithmetic(BigBench_General):
+    DATASET_NAME = "multistep_arithmetic"
+
+
+class MuslimViolenceBias(BigBench_General):
+    DATASET_NAME = "muslim_violence_bias"
+
+
+class NaturalInstructions(BigBench_General):
+    DATASET_NAME = "natural_instructions"
+
+
+class Navigate(BigBench_General):
+    DATASET_NAME = "navigate"
+
+
+class NonsenseWordsGrammar(BigBench_General):
+    DATASET_NAME = "nonsense_words_grammar"
+
+
+class NovelConcepts(BigBench_General):
+    DATASET_NAME = "novel_concepts"
+
+
+class ObjectCounting(BigBench_General):
+    DATASET_NAME = "object_counting"
+
+
+class OddOneOut(BigBench_General):
+    DATASET_NAME = "odd_one_out"
+
+
+class Operators(BigBench_General):
+    DATASET_NAME = "operators"
+
+
+class ParagraphSegmentation(BigBench_General):
+    DATASET_NAME = "paragraph_segmentation"
+
+
+class ParsinluQa(BigBench_General):
+    DATASET_NAME = "parsinlu_qa"
+
+
+class ParsinluReadingComprehension(BigBench_General):
+    DATASET_NAME = "parsinlu_reading_comprehension"
+
+
+class PenguinsInATable(BigBench_General):
+    DATASET_NAME = "penguins_in_a_table"
+    BOTH_TASKS = True
+
+
+class PeriodicElements(BigBench_General):
+    DATASET_NAME = "periodic_elements"
+    BOTH_TASKS = True
+
+
+class PersianIdioms(BigBench_General):
+    DATASET_NAME = "persian_idioms"
+
+
+class PhraseRelatedness(BigBench_General):
+    DATASET_NAME = "phrase_relatedness"
+
+
+class PhysicalIntuition(BigBench_General):
+    DATASET_NAME = "physical_intuition"
+
+
+class Physics(BigBench_General):
+    DATASET_NAME = "physics"
+
+
+class PhysicsQuestions(BigBench_General):
+    DATASET_NAME = "physics_questions"
+
+
+class PlayDialogSameOrDifferent(BigBench_General):
+    DATASET_NAME = "play_dialog_same_or_different"
+
+
+class PolishSequenceLabeling(BigBench_General):
+    DATASET_NAME = "polish_sequence_labeling"
+
+
+class PresuppositionsAsNli(BigBench_General):
+    DATASET_NAME = "presuppositions_as_nli"
+
+
+class ProgramSynthesis(BigBench_General):
+    DATASET_NAME = "program_synthesis"
+
+
+class ProteinInteractingSites(BigBench_General):
+    DATASET_NAME = "protein_interacting_sites"
+
+
+class PythonProgrammingChallenge(BigBench_General):
+    DATASET_NAME = "python_programming_challenge"
+
+
+class QaWikidata(BigBench_General):
+    DATASET_NAME = "qa_wikidata"
+
+
+class QuestionAnswerCreation(BigBench_General):
+    DATASET_NAME = "question_answer_creation"
+
+
+class QuestionSelection(BigBench_General):
+    DATASET_NAME = "question_selection"
+
+
+class RealOrFakeText(BigBench_General):
+    DATASET_NAME = "real_or_fake_text"
+
+
+class ReasoningAboutColoredObjects(BigBench_General):
+    DATASET_NAME = "reasoning_about_colored_objects"
+
+
+class RepeatCopyLogic(BigBench_General):
+    DATASET_NAME = "repeat_copy_logic"
+
+
+class Rephrase(BigBench_General):
+    DATASET_NAME = "rephrase"
+
+
+class RiddleSense(BigBench_General):
+    DATASET_NAME = "riddle_sense"
+
+
+class RootsOptimizationAndGames(BigBench_General):
+    DATASET_NAME = "roots_optimization_and_games"
+
+
+class RuinNames(BigBench_General):
+    DATASET_NAME = "ruin_names"
+
+
+class SalientTranslationErrorDetection(BigBench_General):
+    DATASET_NAME = "salient_translation_error_detection"
+
+
+class ScientificPressRelease(BigBench_General):
+    DATASET_NAME = "scientific_press_release"
+
+
+class SelfAwareness(BigBench_General):
+    DATASET_NAME = "self_awareness"
+
+
+class SelfEvaluationCourtroom(BigBench_General):
+    DATASET_NAME = "self_evaluation_courtroom"
+
+
+class SelfEvaluationTutoring(BigBench_General):
+    DATASET_NAME = "self_evaluation_tutoring"
+
+
+class SemanticParsingInContextSparc(BigBench_General):
+    DATASET_NAME = "semantic_parsing_in_context_sparc"
+
+
+class SemanticParsingSpider(BigBench_General):
+    DATASET_NAME = "semantic_parsing_spider"
+
+
+class SentenceAmbiguity(BigBench_General):
+    DATASET_NAME = "sentence_ambiguity"
+
+
+class SimilaritiesAbstraction(BigBench_General):
+    DATASET_NAME = "similarities_abstraction"
+    BOTH_TASKS = True
+
+
+class SimpTuringConcept(BigBench_General):
+    DATASET_NAME = "simp_turing_concept"
+
+
+class SimpleArithmetic(BigBench_General):
+    DATASET_NAME = "simple_arithmetic"
+
+
+class SimpleArithmeticJson(BigBench_General):
+    DATASET_NAME = "simple_arithmetic_json"
+
+
+class SimpleArithmeticJsonMultipleChoice(BigBench_General):
+    DATASET_NAME = "simple_arithmetic_json_multiple_choice"
+
+
+class SimpleArithmeticJsonSubtasks(BigBench_General):
+    DATASET_NAME = "simple_arithmetic_json_subtasks"
+
+
+class SimpleArithmeticMultipleTargetsJson(BigBench_General):
+    DATASET_NAME = "simple_arithmetic_multiple_targets_json"
+
+
+class SimpleEthicalQuestions(BigBench_General):
+    DATASET_NAME = "simple_ethical_questions"
+
+
+class SimpleTextEditing(BigBench_General):
+    DATASET_NAME = "simple_text_editing"
+
+
+class Snarks(BigBench_General):
+    DATASET_NAME = "snarks"
+
+
+class SocialIqa(BigBench_General):
+    DATASET_NAME = "social_iqa"
+
+
+class SocialSupport(BigBench_General):
+    DATASET_NAME = "social_support"
+
+
+class SpellingBee(BigBench_General):
+    DATASET_NAME = "spelling_bee"
+
+
+class SportsUnderstanding(BigBench_General):
+    DATASET_NAME = "sports_understanding"
+
+
+class SquadShifts(BigBench_General):
+    DATASET_NAME = "squad_shifts"
+
+
+class StrangeStories(BigBench_General):
+    DATASET_NAME = "strange_stories"
+
+
+class Strategyqa(BigBench_General):
+    DATASET_NAME = "strategyqa"
+    BOTH_TASKS = True
+
+
+class SubjectVerbAgreement(BigBench_General):
+    DATASET_NAME = "subject_verb_agreement"
+
+
+class Sudoku(BigBench_General):
+    DATASET_NAME = "sudoku"
+
+
+class SufficientInformation(BigBench_General):
+    DATASET_NAME = "sufficient_information"
+
+
+class SuicideRisk(BigBench_General):
+    DATASET_NAME = "suicide_risk"
+
+
+class SwahiliEnglishProverbs(BigBench_General):
+    DATASET_NAME = "swahili_english_proverbs"
+
+
+class SwedishToGermanProverbs(BigBench_General):
+    DATASET_NAME = "swedish_to_german_proverbs"
+
+
+class SymbolInterpretation(BigBench_General):
+    DATASET_NAME = "symbol_interpretation"
+
+
+class Taboo(BigBench_General):
+    DATASET_NAME = "taboo"
+
+
+class Talkdown(BigBench_General):
+    DATASET_NAME = "talkdown"
+
+
+class TemporalSequences(BigBench_General):
+    DATASET_NAME = "temporal_sequences"
+
+
+class Tense(BigBench_General):
+    DATASET_NAME = "tense"
+
+
+class TextNavigationGame(BigBench_General):
+    DATASET_NAME = "text_navigation_game"
+
+
+class Timedial(BigBench_General):
+    DATASET_NAME = "timedial"
+
+
+class TopicalChat(BigBench_General):
+    DATASET_NAME = "topical_chat"
+
+
+class TrackingShuffledObjects(BigBench_General):
+    DATASET_NAME = "tracking_shuffled_objects"
+
+
+class TrainingOnTestSet(BigBench_General):
+    DATASET_NAME = "training_on_test_set"
+
+
+class TruthfulQa(BigBench_General):
+    DATASET_NAME = "truthful_qa"
+
+
+class TwentyQuestions(BigBench_General):
+    DATASET_NAME = "twenty_questions"
+
+
+class UnderstandingFables(BigBench_General):
+    DATASET_NAME = "understanding_fables"
+
+
+class UndoPermutation(BigBench_General):
+    DATASET_NAME = "undo_permutation"
+
+
+class UnitConversion(BigBench_General):
+    DATASET_NAME = "unit_conversion"
+    BOTH_TASKS = True
+
+
+class UnitInterpretation(BigBench_General):
+    DATASET_NAME = "unit_interpretation"
+
+
+class UnnaturalInContextLearning(BigBench_General):
+    DATASET_NAME = "unnatural_in_context_learning"
+
+
+class Unqover(BigBench_General):
+    DATASET_NAME = "unqover"
+
+
+class VitamincFactVerification(BigBench_General):
+    DATASET_NAME = "vitaminc_fact_verification"
+
+
+class WebOfLies(BigBench_General):
+    DATASET_NAME = "web_of_lies"
+
+
+class WhatIsTheTao(BigBench_General):
+    DATASET_NAME = "what_is_the_tao"
+
+
+class WhichWikiEdit(BigBench_General):
+    DATASET_NAME = "which_wiki_edit"
+
+
+class Winowhy(BigBench_General):
+    DATASET_NAME = "winowhy"
+
+
+class WordProblemsOnSetsAndGraphs(BigBench_General):
+    DATASET_NAME = "word_problems_on_sets_and_graphs"
+
+
+class WordSorting(BigBench_General):
+    DATASET_NAME = "word_sorting"
+
+
+class WordUnscrambling(BigBench_General):
+    DATASET_NAME = "word_unscrambling"
+
+
+class YesNoBlackWhite(BigBench_General):
+    DATASET_NAME = "yes_no_black_white"

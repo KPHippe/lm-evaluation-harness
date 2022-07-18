@@ -6,3 +6,5 @@ lm_cache
 
 #From Kyle
 big_bench_integration/*.json
+lm_eval/tasks/big_bench_tasks/*.out
+lm_eval/tasks/big_bench_tasks/*.json

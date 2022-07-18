@@ -4,15 +4,7 @@ from typing import List, Union
 import sacrebleu
 import lm_eval.base
 
-from .big_bench_tasks.big_bench_all import (
-    AutoCategroization,
-    CodeNames,
-    Anachronisms,
-    AbstractNarrativeUnderstanding,
-    AnalogicalSimilarity,
-    ArithmeticBB,
-    ObjectCounting,
-)
+from .big_bench_tasks import big_bench_all as bb
 
 from . import radbio
 
@@ -101,13 +93,13 @@ TASK_REGISTRY = {
     "ppiHumanQA": radbio.ppiHumanQA,
     "humanPathwaysQA": radbio.humanPathwaysQA,
     # BIG-Bench tasks
-    "anachronisms": Anachronisms,
-    "abstract_narrative_understanding": AbstractNarrativeUnderstanding,
-    "analogical_similarity": AnalogicalSimilarity,
-    "auto_categorization": AutoCategroization,
-    "arithmetic": ArithmeticBB,
-    "codenames": CodeNames,
-    "object_counting": ObjectCounting,
+    "anachronisms": bb.Anachronisms,
+    "abstract_narrative_understanding": bb.AbstractNarrativeUnderstanding,
+    "analogical_similarity": bb.AnalogicalSimilarity,
+    "auto_categorization": bb.AutoCategroization,
+    "arithmetic": bb.ArithmeticBB,
+    "codenames": bb.CodeNames,
+    "object_counting": bb.ObjectCounting,
     # GLUE
     "cola": glue.CoLA,
     "mnli": glue.MNLI,
